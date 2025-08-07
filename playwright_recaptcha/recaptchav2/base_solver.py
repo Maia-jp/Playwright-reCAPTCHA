@@ -29,14 +29,24 @@ class BaseSolver(ABC, Generic[PageT]):
     capsolver_api_key : Optional[str], optional
         The CapSolver API key, by default None.
         If None, the `CAPSOLVER_API_KEY` environment variable will be used.
+    google_cloud_credentials : Optional[str], optional
+        Path to the Google Cloud credentials JSON file, by default None.
+        If None, the `GOOGLE_CLOUD_CREDENTIALS` environment variable will be used.
+        Required for audio challenge solving with Google Cloud Speech-to-Text API.
     """
 
     def __init__(
-        self, page: PageT, *, attempts: int = 5, capsolver_api_key: Optional[str] = None
+        self, 
+        page: PageT, 
+        *, 
+        attempts: int = 5, 
+        capsolver_api_key: Optional[str] = None,
+        google_cloud_credentials: Optional[str] = None
     ) -> None:
         self._page = page
         self._attempts = attempts
         self._capsolver_api_key = capsolver_api_key or os.getenv("CAPSOLVER_API_KEY")
+        self._google_cloud_credentials = google_cloud_credentials or os.getenv("GOOGLE_CLOUD_CREDENTIALS")
 
         self._token: Optional[str] = None
         self._payload_response: Union[APIResponse, Response, None] = None
@@ -46,7 +56,8 @@ class BaseSolver(ABC, Generic[PageT]):
         return (
             f"{self.__class__.__name__}(page={self._page!r}, "
             f"attempts={self._attempts!r}, "
-            f"capsolver_api_key={self._capsolver_api_key!r})"
+            f"capsolver_api_key={self._capsolver_api_key!r}, "
+            f"google_cloud_credentials={self._google_cloud_credentials!r})"
         )
 
     def close(self) -> None:

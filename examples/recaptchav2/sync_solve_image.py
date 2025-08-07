@@ -9,7 +9,10 @@ def main() -> None:
         page = browser.new_page()
         page.goto("https://www.google.com/recaptcha/api2/demo")
 
-        with recaptchav2.SyncSolver(page) as solver:
+        with recaptchav2.SyncSolver(
+            page,
+            google_cloud_credentials="path/to/your/google-cloud-credentials.json"
+        ) as solver:
             token = solver.solve_recaptcha(wait=True, image_challenge=True)
             print(token)
 

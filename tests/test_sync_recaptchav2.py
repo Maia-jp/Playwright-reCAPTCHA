@@ -5,6 +5,7 @@ from playwright_recaptcha import (
     CapSolverError,
     RecaptchaNotFoundError,
     RecaptchaRateLimitError,
+    RecaptchaSolveError,
     recaptchav2,
 )
 

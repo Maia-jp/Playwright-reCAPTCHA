@@ -16,6 +16,7 @@ setup(
     packages=find_packages(),
     python_requires=">=3.9",
     install_requires=[
+        "google-cloud-speech==2.30.0",
         "playwright>=1.33.0,!=1.50.0",
         "pydub==0.25.1",
         "SpeechRecognition==3.14.3",

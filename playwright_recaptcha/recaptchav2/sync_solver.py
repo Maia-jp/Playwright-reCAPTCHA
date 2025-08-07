@@ -39,6 +39,10 @@ class SyncSolver(BaseSolver[Page]):
     capsolver_api_key : Optional[str], optional
         The CapSolver API key, by default None.
         If None, the `CAPSOLVER_API_KEY` environment variable will be used.
+    google_cloud_credentials : Optional[str], optional
+        Path to the Google Cloud credentials JSON file, by default None.
+        If None, the `GOOGLE_CLOUD_CREDENTIALS` environment variable will be used.
+        Required for audio challenge solving with Google Cloud Speech-to-Text API.
     """
 
     def __enter__(self) -> SyncSolver:
@@ -232,7 +236,7 @@ class SyncSolver(BaseSolver[Page]):
         self, audio_url: str, *, language: str = "en-US"
     ) -> Optional[str]:
         """
-        Transcribe the reCAPTCHA audio challenge.
+        Transcribe the reCAPTCHA audio challenge using Google Cloud Speech-to-Text API.
 
         Parameters
         ----------
@@ -246,7 +250,19 @@ class SyncSolver(BaseSolver[Page]):
         Optional[str]
             The reCAPTCHA audio text.
             Returns None if the audio could not be converted.
+        
+        Raises
+        ------
+        RecaptchaSolveError
+            If Google Cloud credentials are not provided or are invalid.
         """
+        if not self._google_cloud_credentials:
+            raise RecaptchaSolveError(
+                "Google Cloud credentials are required for audio transcription. "
+                "Set GOOGLE_CLOUD_CREDENTIALS environment variable or pass "
+                "google_cloud_credentials parameter."
+            )
+
         response = self._page.request.get(audio_url)
 
         wav_audio = BytesIO()
@@ -258,14 +274,25 @@ class SyncSolver(BaseSolver[Page]):
             return None
 
         audio.export(wav_audio, format="wav")
+        wav_audio.seek(0)
+        
         recognizer = speech_recognition.Recognizer()
 
         with speech_recognition.AudioFile(wav_audio) as source:
             audio_data = recognizer.record(source)
 
         try:
-            return recognizer.recognize_google(audio_data, language=language)
-        except speech_recognition.UnknownValueError:
+            return recognizer.recognize_google_cloud(
+                audio_data, 
+                credentials_json=self._google_cloud_credentials,
+                language=language
+            )
+        except (
+            speech_recognition.UnknownValueError,
+            speech_recognition.RequestError,
+            FileNotFoundError,
+            OSError,
+        ):
             return None
 
     def _click_checkbox(self, recaptcha_box: SyncRecaptchaBox) -> None:

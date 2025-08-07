@@ -11,7 +11,10 @@ async def main() -> None:
         page = await browser.new_page()
         await page.goto("https://www.google.com/recaptcha/api2/demo")
 
-        async with recaptchav2.AsyncSolver(page) as solver:
+        async with recaptchav2.AsyncSolver(
+            page,
+            google_cloud_credentials="path/to/your/google-cloud-credentials.json"
+        ) as solver:
             token = await solver.solve_recaptcha(wait=True, image_challenge=True)
             print(token)
 

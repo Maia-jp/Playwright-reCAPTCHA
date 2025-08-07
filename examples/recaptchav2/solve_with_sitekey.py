@@ -31,7 +31,10 @@ def main() -> None:
             RECAPTCHA_HTML.format(sitekey="6Le-wvkSAAAAAPBMRTvw0Q4Muexq9bi0DJwx_mJ-")
         )
 
-        with recaptchav2.SyncSolver(page) as solver:
+        with recaptchav2.SyncSolver(
+            page,
+            google_cloud_credentials="path/to/your/google-cloud-credentials.json"
+        ) as solver:
             token = solver.solve_recaptcha(wait=True)
             print(token)
 
