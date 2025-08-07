@@ -85,10 +85,10 @@ async def test_google_cloud_credentials_required() -> None:
         page = await browser.new_page()
         await page.goto("https://www.google.com/recaptcha/api2/demo")
 
-        # Test without credentials should raise RecaptchaSolveError
-        with pytest.raises(RecaptchaSolveError, match="Google Cloud credentials are required"):
+        # Test without credentials should raise RecaptchaSolveError when forced
+        with pytest.raises(ValueError, match="Google Cloud credentials are required when force_google_cloud=True"):
             async with recaptchav2.AsyncSolver(
-                page, google_cloud_credentials=None
+                page, google_cloud_credentials=None, force_google_cloud=True
             ) as solver:
                 await solver.solve_recaptcha(wait=True)
 

@@ -33,7 +33,7 @@ class BaseSolver(ABC, Generic[PageT]):
         The CapSolver API key, by default None.
         If None, the `CAPSOLVER_API_KEY` environment variable will be used.
     google_cloud_credentials : Optional[str], optional
-        Path to the Google Cloud credentials JSON file, by default None.
+        Either a path to the Google Cloud credentials JSON file OR a Google Cloud API key, by default None.
         If None, the `GOOGLE_CLOUD_CREDENTIALS` environment variable will be used.
         Required for audio challenge solving with Google Cloud Speech-to-Text API.
     force_google_cloud : bool, optional
@@ -107,7 +107,7 @@ class BaseSolver(ABC, Generic[PageT]):
 
     def _validate_google_cloud_credentials(self) -> None:
         """
-        Validate the Google Cloud credentials file.
+        Validate the Google Cloud credentials (API key or JSON file).
         
         Raises
         ------
@@ -119,12 +119,19 @@ class BaseSolver(ABC, Generic[PageT]):
         if not self._google_cloud_credentials:
             return
 
+        # Check if it's an API key (starts with 'AIza' and is about 39 characters)
+        if self._google_cloud_credentials.startswith('AIza') and len(self._google_cloud_credentials) >= 35:
+            self._logger.debug("Using Google Cloud API key for authentication")
+            return
+        
+        # Otherwise, treat as a JSON file path
         credentials_path = Path(self._google_cloud_credentials)
         
         # Check if file exists
         if not credentials_path.exists():
             raise FileNotFoundError(
-                f"Google Cloud credentials file not found: {self._google_cloud_credentials}"
+                f"Google Cloud credentials file not found: {self._google_cloud_credentials}. "
+                f"Provide either a valid JSON file path or an API key starting with 'AIza'"
             )
         
         # Check if file is readable and valid JSON
@@ -151,6 +158,8 @@ class BaseSolver(ABC, Generic[PageT]):
                 f"Google Cloud credentials file is missing required fields: {missing_fields}. "
                 f"Ensure you are using a valid service account key file."
             )
+        
+        self._logger.debug("Using Google Cloud JSON credentials file for authentication")
 
     @staticmethod
     @abstractmethod

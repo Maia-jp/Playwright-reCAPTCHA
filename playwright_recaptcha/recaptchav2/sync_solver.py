@@ -278,6 +278,68 @@ class SyncSolver(BaseSolver[Page]):
 
         self._logger.debug("Using Google Cloud Speech-to-Text API")
         
+        # Check if we're using an API key or JSON file
+        is_api_key = (self._google_cloud_credentials.startswith('AIza') and 
+                     len(self._google_cloud_credentials) >= 35)
+        
+        if is_api_key:
+            return self._transcribe_with_api_key(audio_url, language=language)
+        else:
+            return self._transcribe_with_json_credentials(audio_url, language=language)
+
+    def _transcribe_with_api_key(self, audio_url: str, *, language: str = "en-US") -> Optional[str]:
+        """Transcribe using Google Cloud API key."""
+        try:
+            from google.cloud import speech
+            from google.api_core.client_options import ClientOptions
+            
+            response = self._page.request.get(audio_url)
+            self._logger.debug(f"Downloaded audio file, size: {len(response.body())} bytes")
+
+            wav_audio = BytesIO()
+            mp3_audio = BytesIO(response.body())
+
+            try:
+                audio: AudioSegment = AudioSegment.from_mp3(mp3_audio)
+                self._logger.debug(f"Audio conversion successful, duration: {len(audio)}ms")
+            except CouldntDecodeError as e:
+                self._logger.error(f"Failed to decode MP3 audio: {e}")
+                return None
+
+            # Convert to mono for Google Cloud API
+            audio = audio.set_channels(1)
+            audio.export(wav_audio, format="wav")
+            wav_audio.seek(0)
+
+            # Use Google Cloud Speech client with API key
+            client_options = ClientOptions(api_key=self._google_cloud_credentials)
+            client = speech.SpeechClient(client_options=client_options)
+
+            audio_content = wav_audio.getvalue()
+            audio = speech.RecognitionAudio(content=audio_content)
+            config = speech.RecognitionConfig(
+                encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+                language_code=language,
+            )
+
+            self._logger.debug("Calling Google Cloud Speech API with API key")
+            response = client.recognize(config=config, audio=audio)
+
+            if response.results:
+                result = response.results[0].alternatives[0].transcript
+                self._logger.info(f"Google Cloud API transcription successful: '{result}'")
+                print("✅ CAPTCHA solved with your own Google Cloud API keys")
+                return result
+            else:
+                self._logger.warning("Google Cloud API returned no results")
+                return None
+
+        except Exception as e:
+            self._logger.error(f"Google Cloud API key transcription failed: {type(e).__name__}: {e}")
+            return None
+
+    def _transcribe_with_json_credentials(self, audio_url: str, *, language: str = "en-US") -> Optional[str]:
+        """Transcribe using JSON credentials file via SpeechRecognition library."""
         try:
             response = self._page.request.get(audio_url)
             self._logger.debug(f"Downloaded audio file, size: {len(response.body())} bytes")
@@ -292,6 +354,8 @@ class SyncSolver(BaseSolver[Page]):
                 self._logger.error(f"Failed to decode MP3 audio: {e}")
                 return None
 
+            # Convert to mono for Google Cloud API (JSON credentials path)
+            audio = audio.set_channels(1)
             audio.export(wav_audio, format="wav")
             wav_audio.seek(0)
             
@@ -303,11 +367,11 @@ class SyncSolver(BaseSolver[Page]):
 
             result = recognizer.recognize_google_cloud(
                 audio_data, 
-                credentials_json=self._google_cloud_credentials,
+                credentials_json_path=self._google_cloud_credentials,
                 language=language
             )
             if result:
-                self._logger.info(f"Google Cloud API transcription successful: '{result}'")
+                self._logger.info(f"Google Cloud JSON transcription successful: '{result}'")
                 print("✅ CAPTCHA solved with your own Google Cloud API keys")
             else:
                 self._logger.warning("Google Cloud API returned empty result")
@@ -323,7 +387,7 @@ class SyncSolver(BaseSolver[Page]):
             self._logger.error(f"Credentials file error: {e}")
             return None
         except Exception as e:
-            self._logger.error(f"Unexpected error during transcription: {type(e).__name__}: {e}")
+            self._logger.error(f"Unexpected error during JSON transcription: {type(e).__name__}: {e}")
             return None
 
     def _transcribe_audio_fallback(

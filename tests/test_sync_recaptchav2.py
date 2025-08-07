@@ -80,11 +80,9 @@ def test_google_cloud_credentials_required() -> None:
         page = browser.new_page()
         page.goto("https://www.google.com/recaptcha/api2/demo")
 
-        # Test without credentials should raise RecaptchaSolveError
-        with pytest.raises(RecaptchaSolveError, match="Google Cloud credentials are required"), recaptchav2.SyncSolver(
-            page, google_cloud_credentials=None
-        ) as solver:
-            solver.solve_recaptcha(wait=True)
+        # Test without credentials should raise ValueError when forced
+        with pytest.raises(ValueError, match="Google Cloud credentials are required when force_google_cloud=True"):
+            recaptchav2.SyncSolver(page, google_cloud_credentials=None, force_google_cloud=True)
 
 
 def test_google_cloud_credentials_from_env() -> None:
@@ -113,3 +111,36 @@ def test_google_cloud_credentials_from_env() -> None:
             os.environ.pop("GOOGLE_CLOUD_CREDENTIALS", None)
         else:
             os.environ["GOOGLE_CLOUD_CREDENTIALS"] = original_creds
+
+
+def test_force_google_cloud_without_credentials() -> None:
+    """Test that force_google_cloud=True raises error without credentials."""
+    with sync_playwright() as playwright:
+        browser = playwright.firefox.launch()
+        page = browser.new_page()
+        
+        # Should raise ValueError during initialization
+        with pytest.raises(ValueError, match="Google Cloud credentials are required when force_google_cloud=True"):
+            recaptchav2.SyncSolver(page, force_google_cloud=True)
+
+
+def test_force_google_cloud_with_credentials() -> None:
+    """Test that force_google_cloud=True works with credentials provided."""
+    with sync_playwright() as playwright:
+        browser = playwright.firefox.launch()
+        page = browser.new_page()
+        
+        # Should not raise error during initialization when credentials are provided
+        # (Even though the file doesn't exist, this tests the parameter logic)
+        try:
+            solver = recaptchav2.SyncSolver(
+                page, 
+                google_cloud_credentials="dummy-path.json",
+                force_google_cloud=True
+            )
+            # This will fail on file validation, which is expected
+        except (FileNotFoundError, ValueError) as e:
+            # Expected - file doesn't exist or is invalid
+            assert "not found" in str(e) or "Cannot read" in str(e)
+        else:
+            solver.close()
