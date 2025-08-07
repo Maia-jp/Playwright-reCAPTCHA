@@ -81,6 +81,9 @@ class AsyncSolver(BaseSolver[Page]):
         Path to the Google Cloud credentials JSON file, by default None.
         If None, the `GOOGLE_CLOUD_CREDENTIALS` environment variable will be used.
         Required for audio challenge solving with Google Cloud Speech-to-Text API.
+    force_google_cloud : bool, optional
+        If True, forces the use of Google Cloud Speech-to-Text API and raises
+        an error if credentials are not provided, by default False.
     """
 
     async def __aenter__(self) -> AsyncSolver:
@@ -298,12 +301,17 @@ class AsyncSolver(BaseSolver[Page]):
         RecaptchaSolveError
             If Google Cloud credentials are not provided or are invalid.
         """
-        if not self._google_cloud_credentials:
+        # Check if Google Cloud is required (either forced or no other option)
+        if self._force_google_cloud and not self._google_cloud_credentials:
             raise RecaptchaSolveError(
-                "Google Cloud credentials are required for audio transcription. "
+                "Google Cloud credentials are required when force_google_cloud=True. "
                 "Set GOOGLE_CLOUD_CREDENTIALS environment variable or pass "
                 "google_cloud_credentials parameter."
             )
+        
+        # If no Google Cloud credentials but not forced, fall back to free API
+        if not self._google_cloud_credentials:
+            return await self._transcribe_audio_fallback(audio_url, language=language)
 
         loop = asyncio.get_event_loop()
         response = await self._page.request.get(audio_url)
@@ -329,7 +337,7 @@ class AsyncSolver(BaseSolver[Page]):
             audio_data = await loop.run_in_executor(None, recognizer.record, source)
 
         try:
-            return await loop.run_in_executor(
+            result = await loop.run_in_executor(
                 None,
                 functools.partial(
                     recognizer.recognize_google_cloud, 
@@ -338,12 +346,69 @@ class AsyncSolver(BaseSolver[Page]):
                     language=language
                 ),
             )
+            if result:
+                print("✅ CAPTCHA solved with your own Google Cloud API keys")
+            return result
         except (
             speech_recognition.UnknownValueError,
             speech_recognition.RequestError,
             FileNotFoundError,
             OSError,
         ):
+            return None
+
+    async def _transcribe_audio_fallback(
+        self, audio_url: str, *, language: str = "en-US"
+    ) -> Optional[str]:
+        """
+        Fallback transcription using the free Google Speech Recognition API.
+        
+        Parameters
+        ----------
+        audio_url : str
+            The reCAPTCHA audio URL.
+        language : str, optional
+            The language of the audio, by default en-US.
+            
+        Returns
+        -------
+        Optional[str]
+            The reCAPTCHA audio text.
+            Returns None if the audio could not be converted.
+        """
+        loop = asyncio.get_event_loop()
+        response = await self._page.request.get(audio_url)
+
+        wav_audio = BytesIO()
+        mp3_audio = BytesIO(await response.body())
+
+        try:
+            audio: AudioSegment = await loop.run_in_executor(
+                None, AudioSegment.from_mp3, mp3_audio
+            )
+        except CouldntDecodeError:
+            return None
+
+        await loop.run_in_executor(
+            None, functools.partial(audio.export, wav_audio, format="wav")
+        )
+
+        recognizer = speech_recognition.Recognizer()
+
+        async with AsyncAudioFile(wav_audio) as source:
+            audio_data = await loop.run_in_executor(None, recognizer.record, source)
+
+        try:
+            result = await loop.run_in_executor(
+                None,
+                functools.partial(
+                    recognizer.recognize_google, audio_data, language=language
+                ),
+            )
+            if result:
+                print("⚠️  CAPTCHA solved with free Google API (rate limited)")
+            return result
+        except speech_recognition.UnknownValueError:
             return None
 
     async def _click_checkbox(self, recaptcha_box: AsyncRecaptchaBox) -> None:

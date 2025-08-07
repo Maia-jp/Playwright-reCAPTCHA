@@ -71,3 +71,45 @@ def test_recaptcha_not_found_error() -> None:
             page
         ) as solver:
             solver.solve_recaptcha()
+
+
+def test_google_cloud_credentials_required() -> None:
+    """Test that Google Cloud credentials are required for audio transcription."""
+    with sync_playwright() as playwright:
+        browser = playwright.firefox.launch()
+        page = browser.new_page()
+        page.goto("https://www.google.com/recaptcha/api2/demo")
+
+        # Test without credentials should raise RecaptchaSolveError
+        with pytest.raises(RecaptchaSolveError, match="Google Cloud credentials are required"), recaptchav2.SyncSolver(
+            page, google_cloud_credentials=None
+        ) as solver:
+            solver.solve_recaptcha(wait=True)
+
+
+def test_google_cloud_credentials_from_env() -> None:
+    """Test that Google Cloud credentials can be loaded from environment variable."""
+    import os
+    
+    # Save original value
+    original_creds = os.environ.get("GOOGLE_CLOUD_CREDENTIALS")
+    
+    try:
+        # Set environment variable
+        os.environ["GOOGLE_CLOUD_CREDENTIALS"] = "test-credentials.json"
+        
+        with sync_playwright() as playwright:
+            browser = playwright.firefox.launch()
+            page = browser.new_page()
+            
+            # Should not raise an error during initialization
+            solver = recaptchav2.SyncSolver(page)
+            assert solver._google_cloud_credentials == "test-credentials.json"
+            solver.close()
+    
+    finally:
+        # Restore original value
+        if original_creds is None:
+            os.environ.pop("GOOGLE_CLOUD_CREDENTIALS", None)
+        else:
+            os.environ["GOOGLE_CLOUD_CREDENTIALS"] = original_creds

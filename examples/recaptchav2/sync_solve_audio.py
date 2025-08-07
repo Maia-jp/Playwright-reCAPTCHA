@@ -11,7 +11,8 @@ def main() -> None:
 
         with recaptchav2.SyncSolver(
             page,
-            google_cloud_credentials="path/to/your/google-cloud-credentials.json"
+            google_cloud_credentials="path/to/your/google-cloud-credentials.json",
+            force_google_cloud=True  # Force Google Cloud API usage
         ) as solver:
             token = solver.solve_recaptcha(wait=True)
             print(token)

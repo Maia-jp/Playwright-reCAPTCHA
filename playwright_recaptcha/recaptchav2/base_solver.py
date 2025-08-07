@@ -1,5 +1,7 @@
+import json
 import os
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any, Dict, Generic, Iterable, Optional, TypeVar, Union
 
 from playwright.async_api import APIResponse as AsyncAPIResponse
@@ -33,6 +35,9 @@ class BaseSolver(ABC, Generic[PageT]):
         Path to the Google Cloud credentials JSON file, by default None.
         If None, the `GOOGLE_CLOUD_CREDENTIALS` environment variable will be used.
         Required for audio challenge solving with Google Cloud Speech-to-Text API.
+    force_google_cloud : bool, optional
+        If True, forces the use of Google Cloud Speech-to-Text API and raises
+        an error if credentials are not provided, by default False.
     """
 
     def __init__(
@@ -41,12 +46,25 @@ class BaseSolver(ABC, Generic[PageT]):
         *, 
         attempts: int = 5, 
         capsolver_api_key: Optional[str] = None,
-        google_cloud_credentials: Optional[str] = None
+        google_cloud_credentials: Optional[str] = None,
+        force_google_cloud: bool = False
     ) -> None:
         self._page = page
         self._attempts = attempts
         self._capsolver_api_key = capsolver_api_key or os.getenv("CAPSOLVER_API_KEY")
         self._google_cloud_credentials = google_cloud_credentials or os.getenv("GOOGLE_CLOUD_CREDENTIALS")
+        self._force_google_cloud = force_google_cloud
+        
+        # If force_google_cloud is True, ensure credentials are provided
+        if self._force_google_cloud and not self._google_cloud_credentials:
+            raise ValueError(
+                "Google Cloud credentials are required when force_google_cloud=True. "
+                "Provide google_cloud_credentials parameter or set GOOGLE_CLOUD_CREDENTIALS environment variable."
+            )
+        
+        # Validate Google Cloud credentials if provided
+        if self._google_cloud_credentials:
+            self._validate_google_cloud_credentials()
 
         self._token: Optional[str] = None
         self._payload_response: Union[APIResponse, Response, None] = None
@@ -57,7 +75,8 @@ class BaseSolver(ABC, Generic[PageT]):
             f"{self.__class__.__name__}(page={self._page!r}, "
             f"attempts={self._attempts!r}, "
             f"capsolver_api_key={self._capsolver_api_key!r}, "
-            f"google_cloud_credentials={self._google_cloud_credentials!r})"
+            f"google_cloud_credentials={self._google_cloud_credentials!r}, "
+            f"force_google_cloud={self._force_google_cloud!r})"
         )
 
     def close(self) -> None:
@@ -66,6 +85,53 @@ class BaseSolver(ABC, Generic[PageT]):
             self._page.remove_listener("response", self._response_callback)
         except KeyError:
             pass
+
+    def _validate_google_cloud_credentials(self) -> None:
+        """
+        Validate the Google Cloud credentials file.
+        
+        Raises
+        ------
+        FileNotFoundError
+            If the credentials file does not exist.
+        ValueError
+            If the credentials file is not valid JSON or missing required fields.
+        """
+        if not self._google_cloud_credentials:
+            return
+
+        credentials_path = Path(self._google_cloud_credentials)
+        
+        # Check if file exists
+        if not credentials_path.exists():
+            raise FileNotFoundError(
+                f"Google Cloud credentials file not found: {self._google_cloud_credentials}"
+            )
+        
+        # Check if file is readable and valid JSON
+        try:
+            with open(credentials_path, "r", encoding="utf-8") as f:
+                credentials_data = json.load(f)
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                f"Invalid JSON in Google Cloud credentials file: {self._google_cloud_credentials}. "
+                f"Error: {e}"
+            ) from e
+        except (OSError, IOError) as e:
+            raise ValueError(
+                f"Cannot read Google Cloud credentials file: {self._google_cloud_credentials}. "
+                f"Error: {e}"
+            ) from e
+        
+        # Validate required fields for service account key
+        required_fields = ["type", "project_id", "private_key_id", "private_key", "client_email"]
+        missing_fields = [field for field in required_fields if field not in credentials_data]
+        
+        if missing_fields:
+            raise ValueError(
+                f"Google Cloud credentials file is missing required fields: {missing_fields}. "
+                f"Ensure you are using a valid service account key file."
+            )
 
     @staticmethod
     @abstractmethod
