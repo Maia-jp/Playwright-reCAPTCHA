@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -38,6 +39,8 @@ class BaseSolver(ABC, Generic[PageT]):
     force_google_cloud : bool, optional
         If True, forces the use of Google Cloud Speech-to-Text API and raises
         an error if credentials are not provided, by default False.
+    debug : bool, optional
+        If True, enables detailed debug logging, by default False.
     """
 
     def __init__(
@@ -47,13 +50,29 @@ class BaseSolver(ABC, Generic[PageT]):
         attempts: int = 5, 
         capsolver_api_key: Optional[str] = None,
         google_cloud_credentials: Optional[str] = None,
-        force_google_cloud: bool = False
+        force_google_cloud: bool = False,
+        debug: bool = False
     ) -> None:
         self._page = page
         self._attempts = attempts
         self._capsolver_api_key = capsolver_api_key or os.getenv("CAPSOLVER_API_KEY")
         self._google_cloud_credentials = google_cloud_credentials or os.getenv("GOOGLE_CLOUD_CREDENTIALS")
         self._force_google_cloud = force_google_cloud
+        self._debug = debug
+        
+        # Set up logger
+        self._logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+        if debug:
+            self._logger.setLevel(logging.DEBUG)
+            if not self._logger.handlers:
+                handler = logging.StreamHandler()
+                handler.setFormatter(logging.Formatter(
+                    '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+                ))
+                self._logger.addHandler(handler)
+        
+        self._logger.info(f"Initializing {self.__class__.__name__} with attempts={attempts}, "
+                         f"force_google_cloud={force_google_cloud}, debug={debug}")
         
         # If force_google_cloud is True, ensure credentials are provided
         if self._force_google_cloud and not self._google_cloud_credentials:

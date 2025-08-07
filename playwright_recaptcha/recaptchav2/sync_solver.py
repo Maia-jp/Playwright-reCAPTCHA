@@ -259,8 +259,12 @@ class SyncSolver(BaseSolver[Page]):
         RecaptchaSolveError
             If Google Cloud credentials are not provided or are invalid.
         """
+        self._logger.debug(f"Starting audio transcription for URL: {audio_url[:50]}...")
+        self._logger.debug(f"Language: {language}, Force Google Cloud: {self._force_google_cloud}")
+        
         # Check if Google Cloud is required (either forced or no other option)
         if self._force_google_cloud and not self._google_cloud_credentials:
+            self._logger.error("Google Cloud credentials required but not provided")
             raise RecaptchaSolveError(
                 "Google Cloud credentials are required when force_google_cloud=True. "
                 "Set GOOGLE_CLOUD_CREDENTIALS environment variable or pass "
@@ -269,41 +273,57 @@ class SyncSolver(BaseSolver[Page]):
         
         # If no Google Cloud credentials but not forced, fall back to free API
         if not self._google_cloud_credentials:
+            self._logger.info("No Google Cloud credentials found, using free API fallback")
             return self._transcribe_audio_fallback(audio_url, language=language)
 
-        response = self._page.request.get(audio_url)
-
-        wav_audio = BytesIO()
-        mp3_audio = BytesIO(response.body())
-
-        try:
-            audio: AudioSegment = AudioSegment.from_mp3(mp3_audio)
-        except CouldntDecodeError:
-            return None
-
-        audio.export(wav_audio, format="wav")
-        wav_audio.seek(0)
+        self._logger.debug("Using Google Cloud Speech-to-Text API")
         
-        recognizer = speech_recognition.Recognizer()
-
-        with speech_recognition.AudioFile(wav_audio) as source:
-            audio_data = recognizer.record(source)
-
         try:
+            response = self._page.request.get(audio_url)
+            self._logger.debug(f"Downloaded audio file, size: {len(response.body())} bytes")
+
+            wav_audio = BytesIO()
+            mp3_audio = BytesIO(response.body())
+
+            try:
+                audio: AudioSegment = AudioSegment.from_mp3(mp3_audio)
+                self._logger.debug(f"Audio conversion successful, duration: {len(audio)}ms")
+            except CouldntDecodeError as e:
+                self._logger.error(f"Failed to decode MP3 audio: {e}")
+                return None
+
+            audio.export(wav_audio, format="wav")
+            wav_audio.seek(0)
+            
+            recognizer = speech_recognition.Recognizer()
+
+            with speech_recognition.AudioFile(wav_audio) as source:
+                audio_data = recognizer.record(source)
+                self._logger.debug("Audio data recorded for recognition")
+
             result = recognizer.recognize_google_cloud(
                 audio_data, 
                 credentials_json=self._google_cloud_credentials,
                 language=language
             )
             if result:
+                self._logger.info(f"Google Cloud API transcription successful: '{result}'")
                 print("✅ CAPTCHA solved with your own Google Cloud API keys")
+            else:
+                self._logger.warning("Google Cloud API returned empty result")
             return result
-        except (
-            speech_recognition.UnknownValueError,
-            speech_recognition.RequestError,
-            FileNotFoundError,
-            OSError,
-        ):
+            
+        except speech_recognition.UnknownValueError as e:
+            self._logger.warning(f"Google Cloud API could not understand audio: {e}")
+            return None
+        except speech_recognition.RequestError as e:
+            self._logger.error(f"Google Cloud API request failed: {e}")
+            return None
+        except (FileNotFoundError, OSError) as e:
+            self._logger.error(f"Credentials file error: {e}")
+            return None
+        except Exception as e:
+            self._logger.error(f"Unexpected error during transcription: {type(e).__name__}: {e}")
             return None
 
     def _transcribe_audio_fallback(
@@ -624,13 +644,18 @@ class SyncSolver(BaseSolver[Page]):
         RecaptchaSolveError
             If the reCAPTCHA could not be solved.
         """
+        self._logger.info(f"Starting reCAPTCHA solve - attempts: {attempts}, wait: {wait}, "
+                          f"image_challenge: {image_challenge}, timeout: {wait_timeout}")
+        
         if image_challenge and self._capsolver_api_key is None:
+            self._logger.error("CapSolver API key required for image challenges but not provided")
             raise CapSolverError(
                 "You must provide a CapSolver API key to solve image challenges."
             )
 
         self._token = None
         attempts = attempts or self._attempts
+        self._logger.debug(f"Using {attempts} attempts for solving")
 
         if wait:
             retry = Retrying(
